@@ -46,15 +46,23 @@ module.exports = (broadcast) => {
 
   // GET ALL
   router.get("/posts", async (req, res) => {
-    const posts = await Post.find().sort({ createdAt: -1 });
-    res.json(posts);
+    try {
+      const posts = await Post.find().sort({ createdAt: -1 });
+      res.json(posts);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // GET ONE
   router.get("/posts/:id", async (req, res) => {
-    const post = await Post.findOne({ id: req.params.id });
-    if (!post) return res.status(404).json({ error: "Not found" });
-    res.json(post);
+    try {
+      const post = await Post.findOne({ id: req.params.id });
+      if (!post) return res.status(404).json({ error: "Not found" });
+      res.json(post);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   return router;

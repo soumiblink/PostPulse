@@ -8,11 +8,23 @@ require("dotenv").config();
 
 const app = express();
 
-/* ---------------- MIDDLEWARE ---------------- */
+/* ---------------- CORS ---------------- */
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://post-pulse-cyan.vercel.app",
+  process.env.CLIENT_URL?.replace(/\/$/, ""),
+].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
 
 app.use(cors({
-  origin: process.env.CLIENT_URL || "*",
-  credentials: true
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS blocked: ${origin}`));
+    }
+  },
+  credentials: true,
 }));
 
 app.use(express.json());
@@ -22,29 +34,21 @@ app.use(express.json());
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected ✅"))
-  .catch((err) => console.error("MongoDB Error:", err));
+  .catch((err) => console.error("MongoDB Error:", err.message));
 
 /* ---------------- HTTP SERVER ---------------- */
 
 const server = http.createServer(app);
 
-/* ---------------- WEBSOCKET SERVER ---------------- */
+/* ---------------- WEBSOCKET ---------------- */
 
 const wss = new WebSocket.Server({ server });
-
 const clients = new Set();
 
 wss.on("connection", (ws) => {
-  console.log("Client connected 🔌");
   clients.add(ws);
-
-  ws.on("close", () => {
-    clients.delete(ws);
-    console.log("Client disconnected ❌");
-  });
+  ws.on("close", () => clients.delete(ws));
 });
-
-/* ---------------- BROADCAST FUNCTION ---------------- */
 
 const broadcast = (data) => {
   clients.forEach((client) => {
@@ -54,12 +58,28 @@ const broadcast = (data) => {
   });
 };
 
+/* ---------------- HEALTH CHECK ---------------- */
+
+app.get("/", (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  res.json({ status: "ok", db: dbState === 1 ? "connected" : "disconnected" });
+});
+
+/* ---------------- DB GUARD ---------------- */
+
+app.use((req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database not connected yet, please retry" });
+  }
+  next();
+});
+
 /* ---------------- ROUTES ---------------- */
 
 const routes = require("./routes")(broadcast);
 app.use("/api", routes);
 
-/* ---------------- INIT POSTS ROUTE ---------------- */
+/* ---------------- INIT POSTS ---------------- */
 
 const Post = require("./models/Post");
 
@@ -68,22 +88,26 @@ app.post("/api/posts/init", async (req, res) => {
     const existing = await Post.find();
     if (existing.length > 0) return res.json(existing);
 
-    const response = await axios.get(
-      "https://jsonplaceholder.typicode.com/posts"
-    );
+    const response = await axios.get("https://jsonplaceholder.typicode.com/posts");
 
-    const posts = await Post.insertMany(response.data);
+    const mapped = response.data.map(({ userId, id, title, body }) => ({
+      userId,
+      id,
+      title,
+      body,
+    }));
 
+    const posts = await Post.insertMany(mapped, { ordered: false });
     res.json(posts);
   } catch (err) {
+    console.error("Init error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-/* ---------------- START SERVER ---------------- */
+/* ---------------- START ---------------- */
 
 const PORT = process.env.PORT || 5000;
-
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT} 🚀`);
 });
