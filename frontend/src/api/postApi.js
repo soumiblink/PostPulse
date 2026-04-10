@@ -1,13 +1,5 @@
-const BASE_URL = "http://localhost:5000/api/posts";
+import { api } from "../services/api";
 
-export const getPosts = async () => {
-  const res = await fetch(BASE_URL);
-  return res.json();
-};
-
-export const initPosts = async () => {
-  const res = await fetch(`${BASE_URL}/init`, {
-    method: "POST",
-  });
-  return res.json();
-};
+export const getPosts = () => api.get("/posts").then((r) => r.data);
+export const initPosts = () => api.post("/posts/init").then((r) => r.data);
+export const getPostById = (id) => api.get(`/posts/${id}`).then((r) => r.data);
