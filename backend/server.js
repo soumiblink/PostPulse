@@ -3,35 +3,49 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const http = require("http");
 const WebSocket = require("ws");
+const axios = require("axios");
+require("dotenv").config();
 
 const app = express();
-app.use(cors());
+
+/* ---------------- MIDDLEWARE ---------------- */
+
+app.use(cors({
+  origin: process.env.CLIENT_URL || "*",
+  credentials: true
+}));
+
 app.use(express.json());
 
-// Mongo connect
-mongoose
-  .connect("mongodb://127.0.0.1:27017/postpulse")
-  .then(() => console.log("MongoDB Connected ✅"))
-  .catch((err) => console.error(err));
+/* ---------------- MONGODB ---------------- */
 
-// Create HTTP server
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch((err) => console.error("MongoDB Error:", err));
+
+/* ---------------- HTTP SERVER ---------------- */
+
 const server = http.createServer(app);
 
-// Create WebSocket server
+/* ---------------- WEBSOCKET SERVER ---------------- */
+
 const wss = new WebSocket.Server({ server });
 
-// Store clients
-let clients = [];
+const clients = new Set();
 
 wss.on("connection", (ws) => {
-  console.log("Client connected");
-  clients.push(ws);
+  console.log("Client connected 🔌");
+  clients.add(ws);
+
   ws.on("close", () => {
-    clients = clients.filter((c) => c !== ws);
+    clients.delete(ws);
+    console.log("Client disconnected ❌");
   });
 });
 
-// Broadcast function
+/* ---------------- BROADCAST FUNCTION ---------------- */
+
 const broadcast = (data) => {
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -40,27 +54,36 @@ const broadcast = (data) => {
   });
 };
 
-// Routes — pass broadcast to avoid circular dependency
+/* ---------------- ROUTES ---------------- */
+
 const routes = require("./routes")(broadcast);
 app.use("/api", routes);
 
-// Init posts route
-const axios = require("axios");
+/* ---------------- INIT POSTS ROUTE ---------------- */
+
 const Post = require("./models/Post");
 
 app.post("/api/posts/init", async (req, res) => {
   try {
     const existing = await Post.find();
     if (existing.length > 0) return res.json(existing);
-    const response = await axios.get("https://jsonplaceholder.typicode.com/posts");
+
+    const response = await axios.get(
+      "https://jsonplaceholder.typicode.com/posts"
+    );
+
     const posts = await Post.insertMany(response.data);
+
     res.json(posts);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Start server
-server.listen(5000, () => {
-  console.log("Server + WebSocket running on http://localhost:5000");
+/* ---------------- START SERVER ---------------- */
+
+const PORT = process.env.PORT || 5000;
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} 🚀`);
 });
