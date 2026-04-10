@@ -13,5 +13,5 @@ export const usePosts = () => {
     load();
   }, []);
 
-  return posts;
+  return [posts, setPosts];
 };

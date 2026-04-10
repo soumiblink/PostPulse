@@ -1,44 +1,57 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const axios = require("axios");
+const http = require("http");
 const WebSocket = require("ws");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 5000;
-
-// =========================
-// CONNECT MONGODB (MODERN)
-// =========================
+// Mongo connect
 mongoose
   .connect("mongodb://127.0.0.1:27017/postpulse")
   .then(() => console.log("MongoDB Connected ✅"))
   .catch((err) => console.error(err));
 
-// =========================
-// MODEL
-// =========================
-const Post = mongoose.model("Post", {
-  userId: Number,
-  id: Number,
-  title: String,
-  body: String,
+// Create HTTP server
+const server = http.createServer(app);
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ server });
+
+// Store clients
+let clients = [];
+
+wss.on("connection", (ws) => {
+  console.log("Client connected");
+  clients.push(ws);
+  ws.on("close", () => {
+    clients = clients.filter((c) => c !== ws);
+  });
 });
 
-// =========================
-// ROUTES
-// =========================
+// Broadcast function
+const broadcast = (data) => {
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+};
 
-// INIT POSTS (fetch + save)
+// Routes — pass broadcast to avoid circular dependency
+const routes = require("./routes")(broadcast);
+app.use("/api", routes);
+
+// Init posts route
+const axios = require("axios");
+const Post = require("./models/Post");
+
 app.post("/api/posts/init", async (req, res) => {
   try {
     const existing = await Post.find();
-    if (existing.length > 0) {
-      return res.json(existing);
-    }
+    if (existing.length > 0) return res.json(existing);
     const response = await axios.get("https://jsonplaceholder.typicode.com/posts");
     const posts = await Post.insertMany(response.data);
     res.json(posts);
@@ -47,40 +60,7 @@ app.post("/api/posts/init", async (req, res) => {
   }
 });
 
-// GET ALL POSTS
-app.get("/api/posts", async (req, res) => {
-  const posts = await Post.find();
-  res.json(posts);
-});
-
-// GET SINGLE POST
-app.get("/api/posts/:id", async (req, res) => {
-  const post = await Post.findOne({ id: req.params.id });
-  res.json(post);
-});
-
-// =========================
-// START SERVER
-// =========================
-const server = app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
-
-// =========================
-// WEBSOCKET SERVER
-// =========================
-const wss = new WebSocket.Server({ server });
-
-wss.on("connection", (ws) => {
-  ws.on("message", async (message) => {
-    try {
-      const { query } = JSON.parse(message);
-      const posts = await Post.find({
-        title: { $regex: query, $options: "i" },
-      }).limit(10);
-      ws.send(JSON.stringify(posts));
-    } catch (err) {
-      ws.send(JSON.stringify({ error: err.message }));
-    }
-  });
+// Start server
+server.listen(5000, () => {
+  console.log("Server + WebSocket running on http://localhost:5000");
 });
