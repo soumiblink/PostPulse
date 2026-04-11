@@ -6,9 +6,13 @@ export const usePosts = () => {
 
   useEffect(() => {
     const load = async () => {
-      await api.post("/posts/init");
-      const res = await api.get("/posts");
-      setPosts(res.data);
+      try {
+        await api.post("/posts/init");
+        const res = await api.get("/posts");
+        setPosts(res.data);
+      } catch (err) {
+        console.error("Failed to load posts:", err.message);
+      }
     };
     load();
   }, []);
